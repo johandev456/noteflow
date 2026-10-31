@@ -6,6 +6,7 @@ import { deleteItem, editItem } from '../core/notes/reducer';
 import { emptyNotes, hasContent, type NotesState } from '../core/notes/types';
 import { describeNotionError, NotionClient } from '../core/notion/client';
 import { exportToNotion, parseNotionId, resolveDestination } from '../core/notion/exporter';
+import { checkDeepgramKey } from '../core/stt/deepgram';
 import { isNotionConfigured, loadSettings, type Settings } from '../core/storage/settings';
 import {
   deleteSession,
@@ -45,6 +46,11 @@ export default defineBackground(() => {
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   const restored = recover().catch(console.error);
+
+  // First run: open the setup page so the keys can be entered and checked.
+  browser.runtime.onInstalled.addListener(({ reason }) => {
+    if (reason === 'install') browser.runtime.openOptionsPage().catch(console.error);
+  });
 
   // Handling the click ourselves (instead of openPanelOnActionClick) grants activeTab on that tab,
   // which tabCapture requires. Click the icon on the tab you want to capture, then press Start.
@@ -172,6 +178,7 @@ export default defineBackground(() => {
         minWords: settings.triggerWords,
         maxWaitMs: settings.triggerSeconds * 1000,
         language: settings.notesLanguage,
+        template: settings.noteTemplate,
       },
       notes,
       usage,
@@ -190,6 +197,12 @@ export default defineBackground(() => {
       const settings = await loadSettings();
       if (!settings.deepgramApiKey) {
         setStatus('error', 'Add your Deepgram API key in the extension options first.');
+        return;
+      }
+      // Checked before asking for the stream id, which expires a few seconds after it is issued.
+      const keyCheck = await checkDeepgramKey(settings.deepgramApiKey);
+      if (keyCheck.status === 'invalid') {
+        setStatus('error', 'Deepgram rejected the API key. Check it in the extension options.');
         return;
       }
       const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
@@ -337,6 +350,10 @@ export default defineBackground(() => {
 
   browser.commands.onCommand.addListener((command) => {
     if (command === 'toggle-recording') toggle();
+    if (command === 'toggle-pause') {
+      if (state.status === 'recording') send({ type: 'offscreen/pause' });
+      else if (state.status === 'paused') send({ type: 'offscreen/resume' });
+    }
   });
 
   function handle(message: Message, sendResponse: (response: unknown) => void): void {

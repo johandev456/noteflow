@@ -48,3 +48,10 @@ For a database, optional properties are filled when they exist with a matching t
 ## History and recovery (Phase 4)
 
 Every recording is saved in IndexedDB (Dexie) while it runs. The **History** tab lists past sessions; open one to see its notes and transcript, send it to Notion again (it updates the same page), export it as Markdown, or delete it. Closing the side panel mid-recording no longer loses anything: reopening it restores the timer, transcript and notes. If the browser closed during a recording, the saved part is kept as a finished session.
+
+## Polish (Phase 5)
+
+- **Setup page**: three steps (Deepgram, LLM, Notion). Each has a "Save & check" button that validates the key against the service. The page opens automatically after installing.
+- **Templates**: Meeting, Class or Podcast, chosen in the side panel (or as the default in the options). The template changes what the notes prioritise.
+- **Key check on Start**: an invalid Deepgram key is reported immediately instead of failing later in the connection.
+- **Shortcuts**: `Alt+Shift+N` start/stop, `Alt+Shift+P` pause/resume (change them at `chrome://extensions/shortcuts`).

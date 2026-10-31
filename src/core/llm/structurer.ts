@@ -10,6 +10,7 @@ import {
   SYSTEM_PROMPT,
   type NotesLanguage,
 } from './prompts';
+import type { TemplateId } from './templates';
 import { addUsage, type Usage } from './usage';
 
 export interface StructurerConfig {
@@ -18,6 +19,7 @@ export interface StructurerConfig {
   /** ...or once this long has passed since text started waiting. */
   maxWaitMs: number;
   language: NotesLanguage;
+  template: TemplateId;
 }
 
 export interface StructurerDeps {
@@ -103,7 +105,14 @@ export class Structurer {
       try {
         const messages: ChatMessage[] = [
           { role: 'system', content: FINAL_SYSTEM_PROMPT },
-          { role: 'user', content: buildFinalMessage(this.notes, this.deps.config.language) },
+          {
+            role: 'user',
+            content: buildFinalMessage(
+              this.notes,
+              this.deps.config.language,
+              this.deps.config.template,
+            ),
+          },
         ];
         this.commit(await this.requestOps(messages));
         this.deps.onError(null);
@@ -165,6 +174,7 @@ export class Structurer {
             context: this.context,
             newText: text,
             language: this.deps.config.language,
+            template: this.deps.config.template,
           }),
         },
       ];

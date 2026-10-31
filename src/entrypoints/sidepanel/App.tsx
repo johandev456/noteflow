@@ -3,7 +3,8 @@ import { estimateCost, formatTokens } from '../../core/llm/usage';
 import { hasContent } from '../../core/notes/types';
 import { HistoryView } from './HistoryView';
 import { NotesView } from './NotesView';
-import { connectSession, exportActions, sessionActions, useSession } from './store';
+import { TEMPLATE_IDS, TEMPLATES, type TemplateId } from '../../core/llm/templates';
+import { connectSession, exportActions, sessionActions, setTemplate, useSession } from './store';
 
 function formatElapsed(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -117,6 +118,7 @@ export function App() {
     useSession();
   const notes = useSession((s) => s.notes);
   const notesBusy = useSession((s) => s.notesBusy);
+  const template = useSession((s) => s.template);
   const [tab, setTab] = useState<Tab>('current');
 
   useEffect(() => connectSession(), []);
@@ -170,6 +172,21 @@ export function App() {
             />
           </div>
         </div>
+        <label className="flex items-center gap-2 text-xs text-neutral-500">
+          Template
+          <select
+            value={template}
+            disabled={live || busy}
+            onChange={(e) => void setTemplate(e.target.value as TemplateId)}
+            className="rounded border border-neutral-300 bg-white px-1 py-0.5 text-neutral-900 disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
+          >
+            {TEMPLATE_IDS.map((id) => (
+              <option key={id} value={id}>
+                {TEMPLATES[id].label}
+              </option>
+            ))}
+          </select>
+        </label>
         <UsageLine />
         <NotionLine />
         {notionError?.status === 'error' && notionError.error && (

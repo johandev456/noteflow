@@ -9,6 +9,7 @@ describe('settingsSchema', () => {
       llmModel: 'qwen3.8-flash',
       llmBaseUrl: 'https://ap-southeast-1.maas.qwencloudapi.com/compatible-mode/v1',
       notesLanguage: 'auto',
+      noteTemplate: 'meeting',
       triggerWords: 120,
       triggerSeconds: 45,
       priceInputPerM: 0.15,

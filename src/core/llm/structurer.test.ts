@@ -21,7 +21,7 @@ function setup(handler: (messages: ChatMessage[], call: number) => Promise<LlmRe
   const errors: Array<string | null> = [];
   const structurer = new Structurer({
     llm,
-    config: { minWords: 120, maxWaitMs: 45_000, language: 'auto' },
+    config: { minWords: 120, maxWaitMs: 45_000, language: 'auto', template: 'meeting' },
     notes,
     usage: emptyUsage(),
     onNotes: (n) => (notes = n),

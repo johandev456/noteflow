@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { emptyUsage, type Prices, type Usage } from '../../core/llm/usage';
 import { emptyNotes, type NotesState } from '../../core/notes/types';
-import { loadSettings } from '../../core/storage/settings';
+import type { TemplateId } from '../../core/llm/templates';
+import { loadSettings, saveSettings } from '../../core/storage/settings';
 import {
   send,
   type ConnectionState,
@@ -28,6 +29,7 @@ interface SessionState {
   notesBusy: boolean;
   notesError?: string;
   prices: Prices;
+  template: TemplateId;
   /** Notion sync state per session id. */
   exports: Record<string, ExportState>;
 }
@@ -44,6 +46,7 @@ export const useSession = create<SessionState>(() => ({
   usage: emptyUsage(),
   notesBusy: false,
   prices: { inputPerM: 0, outputPerM: 0 },
+  template: 'meeting',
   exports: {},
 }));
 
@@ -137,6 +140,7 @@ export function connectSession(): () => void {
     .then((s) =>
       useSession.setState({
         prices: { inputPerM: s.priceInputPerM, outputPerM: s.priceOutputPerM },
+        template: s.noteTemplate,
       }),
     )
     .catch(() => {});
@@ -159,3 +163,9 @@ export const exportActions = {
   sync: (sessionId?: string) => send({ type: 'export/sync', sessionId }),
   remove: (sessionId: string) => send({ type: 'session/delete', sessionId }),
 };
+
+/** Persists the template as the default for the next recordings. */
+export async function setTemplate(template: TemplateId): Promise<void> {
+  useSession.setState({ template });
+  await saveSettings({ ...(await loadSettings()), noteTemplate: template });
+}

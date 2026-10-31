@@ -27,6 +27,29 @@ export function buildListenUrl(language: string): string {
   return `${LISTEN_URL}?${params.toString()}`;
 }
 
+export type KeyCheck =
+  | { status: 'valid' }
+  | { status: 'invalid' }
+  /** Could not tell (network error or an unexpected status); callers should not block on this. */
+  | { status: 'unknown'; message: string };
+
+/** Quick key check against Deepgram's token-details endpoint. */
+export async function checkDeepgramKey(
+  apiKey: string,
+  fetchFn: typeof fetch = globalThis.fetch.bind(globalThis),
+): Promise<KeyCheck> {
+  try {
+    const res = await fetchFn('https://api.deepgram.com/v1/auth/token', {
+      headers: { Authorization: `Token ${apiKey}` },
+    });
+    if (res.ok) return { status: 'valid' };
+    if (res.status === 401) return { status: 'invalid' };
+    return { status: 'unknown', message: `Deepgram answered ${res.status}.` };
+  } catch {
+    return { status: 'unknown', message: 'Could not reach Deepgram.' };
+  }
+}
+
 export function backoffDelay(attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 15000);
 }

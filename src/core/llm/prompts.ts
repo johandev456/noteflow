@@ -1,4 +1,5 @@
 import type { NotesState } from '../notes/types';
+import { TEMPLATES, type TemplateId } from './templates';
 import { compactNotes } from '../notes/reducer';
 
 export type NotesLanguage = 'auto' | 'es' | 'en';
@@ -8,6 +9,7 @@ export const SYSTEM_PROMPT = `You are a live note-taking engine. A conversation 
 
 Each request contains:
 - LANGUAGE: the language to write the notes in.
+- TEMPLATE: the kind of session and what the notes should prioritise.
 - CURRENT_NOTES: the notes so far, as compact JSON. Items with "locked": true were edited by the user: never update or remove them.
 - CONTEXT: the last sentences already processed (for continuity only; do not take notes from it).
 - NEW_TRANSCRIPT: new text to incorporate.
@@ -58,18 +60,25 @@ export function buildUserMessage(args: {
   context: string;
   newText: string;
   language: NotesLanguage;
+  template: TemplateId;
 }): string {
   return [
     `LANGUAGE: ${languageInstruction(args.language)}`,
+    `TEMPLATE: ${TEMPLATES[args.template].guidance}`,
     `CURRENT_NOTES: ${compactNotes(args.notes)}`,
     `CONTEXT: ${args.context || '(none)'}`,
     `NEW_TRANSCRIPT: ${args.newText}`,
   ].join('\n');
 }
 
-export function buildFinalMessage(notes: NotesState, language: NotesLanguage): string {
+export function buildFinalMessage(
+  notes: NotesState,
+  language: NotesLanguage,
+  template: TemplateId,
+): string {
   return [
     `LANGUAGE: ${languageInstruction(language)}`,
+    `TEMPLATE: ${TEMPLATES[template].guidance}`,
     `CURRENT_NOTES: ${compactNotes(notes)}`,
   ].join('\n');
 }

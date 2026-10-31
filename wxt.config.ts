@@ -20,6 +20,10 @@ export default defineConfig({
     optional_host_permissions: ['https://*/*'],
     action: { default_title: 'Open NoteFlow' },
     commands: {
+      'toggle-pause': {
+        suggested_key: { default: 'Alt+Shift+P' },
+        description: 'Pause / resume recording',
+      },
       'toggle-recording': {
         suggested_key: { default: 'Alt+Shift+N' },
         description: 'Start / stop recording',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backoffDelay, buildListenUrl, parseTranscript } from './deepgram';
+import { backoffDelay, buildListenUrl, checkDeepgramKey, parseTranscript } from './deepgram';
 
 describe('buildListenUrl', () => {
   it('requests nova-3 linear16 16 kHz with interim results', () => {
@@ -29,6 +29,41 @@ describe('parseTranscript', () => {
     expect(parseTranscript(msg('  ', true))).toBeNull();
     expect(parseTranscript({ type: 'Metadata' })).toBeNull();
     expect(parseTranscript('nope')).toBeNull();
+  });
+});
+
+describe('checkDeepgramKey', () => {
+  const fakeFetch = (res: Response | Error) =>
+    (async () => {
+      if (res instanceof Error) throw res;
+      return res;
+    }) as unknown as typeof fetch;
+
+  it('maps statuses to valid, invalid and unknown', async () => {
+    expect(await checkDeepgramKey('k', fakeFetch(new Response('{}', { status: 200 })))).toEqual({
+      status: 'valid',
+    });
+    expect(await checkDeepgramKey('k', fakeFetch(new Response('{}', { status: 401 })))).toEqual({
+      status: 'invalid',
+    });
+    expect(
+      await checkDeepgramKey('k', fakeFetch(new Response('{}', { status: 403 }))),
+    ).toMatchObject({
+      status: 'unknown',
+    });
+    expect(await checkDeepgramKey('k', fakeFetch(new TypeError('offline')))).toMatchObject({
+      status: 'unknown',
+    });
+  });
+
+  it('sends the key with the Token scheme', async () => {
+    let auth = '';
+    const spy = (async (_url: string, init: RequestInit) => {
+      auth = (init.headers as Record<string, string>).Authorization ?? '';
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    await checkDeepgramKey('abc', spy);
+    expect(auth).toBe('Token abc');
   });
 });
 
