@@ -8,7 +8,12 @@ export default defineBackground(() => {
   // The service worker can be suspended, so this is rebuilt from offscreen events when it wakes.
   let state: SessionSnapshot = { status: 'idle', connection: 'closed' };
 
-  browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+  // Handling the click ourselves (instead of openPanelOnActionClick) grants activeTab on that tab,
+  // which tabCapture requires. Click the icon on the tab you want to capture, then press Start.
+  browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
+  browser.action.onClicked.addListener((tab) => {
+    if (tab.id) browser.sidePanel.open({ tabId: tab.id }).catch(console.error);
+  });
 
   function setStatus(status: SessionStatus, error?: string, broadcast = true): void {
     state = { ...state, status, error };
@@ -55,7 +60,10 @@ export default defineBackground(() => {
       send({ type: 'offscreen/start', streamId, apiKey: deepgramApiKey, language: sttLanguage });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      setStatus('error', `Could not start capture: ${reason}`);
+      const hint = /not been invoked|activeTab/i.test(reason)
+        ? 'Click the NoteFlow icon (or press Alt+Shift+N) while on the tab you want to capture, then press Start.'
+        : '';
+      setStatus('error', `Could not start capture: ${reason} ${hint}`.trim());
     }
   }
 
