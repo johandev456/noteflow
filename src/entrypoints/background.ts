@@ -1,17 +1,22 @@
 import type { Browser } from 'wxt/browser';
 import { OpenAiCompatClient } from '../core/llm/client';
 import { Structurer } from '../core/llm/structurer';
-import { emptyUsage } from '../core/llm/usage';
+import { emptyUsage, type Usage } from '../core/llm/usage';
 import { deleteItem, editItem } from '../core/notes/reducer';
-import { emptyNotes, hasContent } from '../core/notes/types';
+import { emptyNotes, hasContent, type NotesState } from '../core/notes/types';
 import { describeNotionError, NotionClient } from '../core/notion/client';
+import { exportToNotion, parseNotionId, resolveDestination } from '../core/notion/exporter';
+import { isNotionConfigured, loadSettings, type Settings } from '../core/storage/settings';
 import {
-  exportToNotion,
-  parseNotionId,
-  resolveDestination,
-  type ExportSession,
-} from '../core/notion/exporter';
-import { isNotionConfigured, loadSettings } from '../core/storage/settings';
+  deleteSession,
+  findActiveSession,
+  getSession,
+  listSessions,
+  migrateLegacySession,
+  newSession,
+  saveSession,
+  type SessionRow,
+} from '../core/storage/sessions';
 import {
   send,
   type ExportState,
@@ -22,40 +27,24 @@ import {
 } from '../shared/messages';
 
 const OFFSCREEN_PATH = 'offscreen.html';
-const SESSION_KEY = 'lastSession';
 const PERSIST_DEBOUNCE_MS = 3000;
-
-/** What is kept of the latest recording so it can be exported later (Phase 4 moves this to IndexedDB). */
-type SessionRecord = ExportSession & { notionUrl?: string };
-
-interface StoredSession {
-  record: SessionRecord | null;
-  notes: NotesSnapshot;
-}
+const ACTIVE: SessionStatus[] = ['starting', 'recording', 'paused', 'stopping'];
 
 export default defineBackground(() => {
-  // The service worker can be suspended, so this is rebuilt from offscreen events when it wakes.
-  let state: Omit<SessionSnapshot, 'notes' | 'export' | 'hasSession'> = {
-    status: 'idle',
-    connection: 'closed',
-  };
+  // The service worker can be suspended; everything below is rebuilt from IndexedDB by recover().
+  let state: { status: SessionStatus; connection: SessionSnapshot['connection']; error?: string } =
+    {
+      status: 'idle',
+      connection: 'closed',
+    };
   let notesSnap: NotesSnapshot = { notes: emptyNotes(), usage: emptyUsage(), busy: false };
-  let exportState: ExportState = { status: 'idle' };
-  let record: SessionRecord | null = null;
+  let exports: Record<string, ExportState> = {};
+  /** The active recording, or the latest finished session. */
+  let row: SessionRow | null = null;
   let structurer: Structurer | null = null;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Restore the last session after a service-worker restart so it can still be shown and exported.
-  const restored = browser.storage.local
-    .get(SESSION_KEY)
-    .then((stored) => {
-      const saved = stored[SESSION_KEY] as StoredSession | undefined;
-      if (!saved || structurer) return;
-      record = saved.record;
-      notesSnap = { ...saved.notes, busy: false };
-      if (record?.notionUrl) exportState = { status: 'done', url: record.notionUrl };
-    })
-    .catch(() => {});
+  const restored = recover().catch(console.error);
 
   // Handling the click ourselves (instead of openPanelOnActionClick) grants activeTab on that tab,
   // which tabCapture requires. Click the icon on the tab you want to capture, then press Start.
@@ -64,20 +53,62 @@ export default defineBackground(() => {
     if (tab.id) browser.sidePanel.open({ tabId: tab.id }).catch(console.error);
   });
 
+  // ---- persistence -------------------------------------------------------------------------
+
   function persistSoon(): void {
     if (persistTimer) return;
-    persistTimer = setTimeout(() => {
-      persistTimer = null;
-      persistNow();
-    }, PERSIST_DEBOUNCE_MS);
+    persistTimer = setTimeout(persistNow, PERSIST_DEBOUNCE_MS);
   }
 
   function persistNow(): void {
     if (persistTimer) clearTimeout(persistTimer);
     persistTimer = null;
-    const stored: StoredSession = { record, notes: notesSnap };
-    browser.storage.local.set({ [SESSION_KEY]: stored }).catch(() => {});
+    if (!row) return;
+    row = { ...row, notes: notesSnap.notes, usage: notesSnap.usage };
+    saveSession(row)
+      .then(() => send({ type: 'history/changed' }))
+      .catch(console.error);
   }
+
+  function adopt(session: SessionRow): void {
+    row = session;
+    notesSnap = { notes: session.notes, usage: session.usage, busy: false };
+    if (session.notionUrl) exports[session.id] = { status: 'done', url: session.notionUrl };
+  }
+
+  /** After a service-worker restart: reload the latest session and re-attach to a live recording. */
+  async function recover(): Promise<void> {
+    await migrateLegacySession().catch(console.error);
+    const active = await findActiveSession();
+    if (active) {
+      const status = (await hasOffscreen()) ? await offscreenStatus() : 'idle';
+      if (status !== 'idle') {
+        adopt(active);
+        state = { status, connection: 'open' };
+        structurer = buildStructurer(await loadSettings(), active.notes, active.usage);
+        return;
+      }
+      // The browser was closed (or the capture ended) mid-recording: keep what was saved.
+      await saveSession({ ...active, status: 'done', endedAt: active.endedAt ?? active.updatedAt });
+    }
+    const [latest] = await listSessions(1);
+    if (latest) adopt(latest);
+  }
+
+  async function offscreenStatus(): Promise<'recording' | 'paused' | 'idle'> {
+    try {
+      const reply = await Promise.race([
+        browser.runtime.sendMessage({ type: 'offscreen/getStatus' }),
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1500)),
+      ]);
+      const status = (reply as { status?: string } | undefined)?.status;
+      return status === 'paused' ? 'paused' : status === 'idle' ? 'idle' : 'recording';
+    } catch {
+      return 'recording';
+    }
+  }
+
+  // ---- state helpers -----------------------------------------------------------------------
 
   function setStatus(status: SessionStatus, error?: string, broadcast = true): void {
     state = { ...state, status, error };
@@ -91,10 +122,21 @@ export default defineBackground(() => {
     persistSoon();
   }
 
-  function setExport(next: ExportState): void {
-    exportState = next;
-    send({ type: 'export/state', ...next });
+  function setExport(sessionId: string, next: ExportState): void {
+    exports = { ...exports, [sessionId]: next };
+    send({ type: 'export/state', sessionId, ...next });
   }
+
+  function announceCurrent(): void {
+    send({
+      type: 'session/current',
+      sessionId: row?.id ?? null,
+      startedAt: row && ACTIVE.includes(state.status) ? row.startedAt : null,
+      transcript: row?.transcript ?? [],
+    });
+  }
+
+  // ---- offscreen document ------------------------------------------------------------------
 
   async function hasOffscreen(): Promise<boolean> {
     const contexts = await browser.runtime.getContexts({
@@ -116,12 +158,10 @@ export default defineBackground(() => {
     if (await hasOffscreen()) await browser.offscreen.closeDocument().catch(() => {});
   }
 
-  function createStructurer(settings: Awaited<ReturnType<typeof loadSettings>>): Structurer | null {
-    updateNotes({ notes: emptyNotes(), usage: emptyUsage(), busy: false, error: undefined });
-    if (!settings.llmApiKey || !settings.llmBaseUrl || !settings.llmModel) {
-      updateNotes({ error: 'Add your LLM API key in the extension options to get live notes.' });
-      return null;
-    }
+  // ---- recording ---------------------------------------------------------------------------
+
+  function buildStructurer(settings: Settings, notes: NotesState, usage: Usage): Structurer | null {
+    if (!settings.llmApiKey || !settings.llmBaseUrl || !settings.llmModel) return null;
     return new Structurer({
       llm: new OpenAiCompatClient({
         baseUrl: settings.llmBaseUrl,
@@ -133,16 +173,17 @@ export default defineBackground(() => {
         maxWaitMs: settings.triggerSeconds * 1000,
         language: settings.notesLanguage,
       },
-      notes: notesSnap.notes,
-      usage: notesSnap.usage,
-      onNotes: (notes) => updateNotes({ notes }),
-      onUsage: (usage) => updateNotes({ usage }),
+      notes,
+      usage,
+      onNotes: (n) => updateNotes({ notes: n }),
+      onUsage: (u) => updateNotes({ usage: u }),
       onBusy: (busy) => updateNotes({ busy }),
       onError: (error) => updateNotes({ error: error ?? undefined }),
     });
   }
 
   async function startSession(): Promise<void> {
+    await restored;
     if (state.status !== 'idle' && state.status !== 'error') return;
     setStatus('starting');
     try {
@@ -158,10 +199,17 @@ export default defineBackground(() => {
       }
       const streamId = await browser.tabCapture.getMediaStreamId({ targetTabId: tab.id });
       await ensureOffscreen();
+
       structurer?.dispose();
-      structurer = createStructurer(settings);
-      record = { startedAt: Date.now(), tabUrl: tab.url, tabTitle: tab.title, transcript: [] };
-      setExport({ status: 'idle' });
+      updateNotes({ notes: emptyNotes(), usage: emptyUsage(), busy: false, error: undefined });
+      structurer = buildStructurer(settings, notesSnap.notes, notesSnap.usage);
+      if (!structurer) {
+        updateNotes({ error: 'Add your LLM API key in the extension options to get live notes.' });
+      }
+      row = newSession({ tabUrl: tab.url, tabTitle: tab.title });
+      persistNow();
+      announceCurrent();
+
       send({
         type: 'offscreen/start',
         streamId,
@@ -185,78 +233,126 @@ export default defineBackground(() => {
     }
   }
 
-  async function exportNow(): Promise<void> {
-    await restored;
-    if (exportState.status === 'syncing') return;
-    if (!record || (!hasContent(notesSnap.notes) && !record.transcript.length)) {
-      setExport({ status: 'error', error: 'Nothing to export yet.' });
+  /** The recording ended: process pending text, run the final pass, then auto-export if enabled. */
+  async function finishSession(): Promise<void> {
+    const s = structurer;
+    structurer = null;
+    const id = row?.id;
+    if (row) row = { ...row, status: 'done', endedAt: Date.now() };
+    persistNow();
+    await s?.finalize();
+    persistNow();
+
+    const hasData = hasContent(notesSnap.notes) || Boolean(row?.transcript.length);
+    if (id && !hasData) {
+      // Nothing was captured (for example the capture failed to start): do not keep an empty session.
+      await deleteSession(id);
+      row = null;
+      send({ type: 'history/changed' });
+      announceCurrent();
       return;
     }
-    setExport({ status: 'syncing' });
+    const settings = await loadSettings();
+    if (id && settings.notionAutoExport && isNotionConfigured(settings)) await exportNow(id);
+  }
+
+  // ---- Notion export -----------------------------------------------------------------------
+
+  function remember(id: string, page: { id: string; url?: string }): void {
+    const link = { notionPageId: page.id, notionUrl: page.url };
+    if (row?.id === id) {
+      row = { ...row, ...link };
+      persistNow();
+      return;
+    }
+    void getSession(id).then(async (stored) => {
+      if (!stored) return;
+      await saveSession({ ...stored, ...link });
+      send({ type: 'history/changed' });
+    });
+  }
+
+  async function exportNow(sessionId?: string): Promise<void> {
+    await restored;
+    const id = sessionId ?? row?.id;
+    if (!id || exports[id]?.status === 'syncing') return;
+
+    let target: SessionRow | undefined;
+    if (row?.id === id) {
+      row = { ...row, notes: notesSnap.notes, usage: notesSnap.usage };
+      target = row;
+    } else {
+      target = await getSession(id);
+    }
+    if (!target) return setExport(id, { status: 'error', error: 'Session not found.' });
+    if (!hasContent(target.notes) && !target.transcript.length) {
+      return setExport(id, { status: 'error', error: 'Nothing to export yet.' });
+    }
+
+    setExport(id, { status: 'syncing' });
     try {
       const settings = await loadSettings();
       const destinationId = parseNotionId(settings.notionDestination);
       if (!isNotionConfigured(settings) || !destinationId) {
-        setExport({
+        return setExport(id, {
           status: 'error',
           error: 'Set your Notion token and destination in the extension options.',
         });
-        return;
       }
       const api = new NotionClient({ token: settings.notionToken });
       const dest = await resolveDestination(api, {
         type: settings.notionDestinationType,
         id: destinationId,
       });
-      const result = await exportToNotion(api, dest, record, notesSnap.notes, {
+      const result = await exportToNotion(api, dest, target, target.notes, {
         language: settings.notesLanguage,
         tags: settings.notionTags
           .split(',')
           .map((t) => t.trim())
           .filter(Boolean),
-        // Saved immediately so a failed export is retried on the same page, not duplicated.
-        onPage: (page) => {
-          if (record) record = { ...record, notionPageId: page.id, notionUrl: page.url };
-          persistNow();
-        },
+        // Saved as soon as the page exists so a failed export is retried on it, not duplicated.
+        onPage: (page) => remember(id, page),
       });
-      if (record) record = { ...record, notionPageId: result.pageId, notionUrl: result.url };
-      persistNow();
-      setExport({ status: 'done', url: result.url });
+      remember(id, { id: result.pageId, url: result.url });
+      setExport(id, { status: 'done', url: result.url });
     } catch (err) {
-      setExport({ status: 'error', error: describeNotionError(err) });
+      setExport(id, { status: 'error', error: describeNotionError(err) });
     }
   }
 
-  /** The recording ended: process pending text, run the final pass, then auto-export if enabled. */
-  async function finishSession(): Promise<void> {
-    const s = structurer;
-    structurer = null;
-    if (record) record = { ...record, endedAt: Date.now() };
-    persistNow();
-    await s?.finalize();
-    persistNow();
-    const hasData = hasContent(notesSnap.notes) || Boolean(record?.transcript.length);
-    const settings = await loadSettings();
-    if (hasData && settings.notionAutoExport && isNotionConfigured(settings)) await exportNow();
+  async function removeSession(id: string): Promise<void> {
+    if (row?.id === id && ACTIVE.includes(state.status)) return; // never delete a live recording
+    await deleteSession(id);
+    delete exports[id];
+    if (row?.id === id) {
+      row = null;
+      notesSnap = { notes: emptyNotes(), usage: emptyUsage(), busy: false };
+      send({ type: 'notes/state', ...notesSnap });
+      announceCurrent();
+    }
+    send({ type: 'history/changed' });
   }
+
+  // ---- wiring ------------------------------------------------------------------------------
 
   browser.commands.onCommand.addListener((command) => {
     if (command === 'toggle-recording') toggle();
   });
 
-  browser.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
+  function handle(message: Message, sendResponse: (response: unknown) => void): void {
     switch (message.type) {
       case 'session/getState':
-        restored.then(() =>
-          sendResponse({
-            ...state,
-            notes: notesSnap,
-            export: exportState,
-            hasSession: Boolean(record),
-          } satisfies SessionSnapshot),
-        );
-        return true; // respond asynchronously
+        sendResponse({
+          status: state.status,
+          connection: state.connection,
+          error: state.error,
+          notes: notesSnap,
+          sessionId: row?.id ?? null,
+          startedAt: row && ACTIVE.includes(state.status) ? row.startedAt : null,
+          transcript: row?.transcript ?? [],
+          exports,
+        } satisfies SessionSnapshot);
+        return;
       case 'session/start':
         void startSession();
         return;
@@ -281,12 +377,10 @@ export default defineBackground(() => {
         state = { ...state, connection: message.state };
         return;
       case 'stt/transcript':
-        if (message.isFinal) {
+        if (message.isFinal && row) {
           structurer?.pushFinal(message.text);
-          if (record) {
-            record.transcript.push(message.text);
-            persistSoon();
-          }
+          row.transcript.push(message.text);
+          persistSoon();
         }
         return;
       case 'notes/edit':
@@ -297,9 +391,22 @@ export default defineBackground(() => {
         updateNotes({ notes: deleteItem(notesSnap.notes, message.id) });
         structurer?.setNotes(notesSnap.notes);
         return;
-      case 'export/sync':
-        if (state.status === 'idle' || state.status === 'error') void exportNow();
+      case 'export/sync': {
+        const other = message.sessionId && message.sessionId !== row?.id;
+        if (other || state.status === 'idle' || state.status === 'error') {
+          void exportNow(message.sessionId);
+        }
+        return;
+      }
+      case 'session/delete':
+        void removeSession(message.sessionId);
         return;
     }
+  }
+
+  browser.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
+    // Handled only after recovery, in arrival order, so no event is lost on a cold start.
+    void restored.then(() => handle(message, sendResponse));
+    return message.type === 'session/getState'; // keeps the channel open for the async response
   });
 });

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { estimateCost, formatTokens } from '../../core/llm/usage';
-import { NotesView } from './NotesView';
 import { hasContent } from '../../core/notes/types';
+import { HistoryView } from './HistoryView';
+import { NotesView } from './NotesView';
 import { connectSession, exportActions, sessionActions, useSession } from './store';
 
 function formatElapsed(ms: number): string {
@@ -24,7 +25,7 @@ function Timer() {
 
   return (
     <span className="tabular-nums text-sm text-neutral-500">
-      {formatElapsed(startedAt ? now - startedAt : 0)}
+      {formatElapsed(startedAt ? Math.max(0, now - startedAt) : 0)}
     </span>
   );
 }
@@ -47,9 +48,10 @@ function UsageLine() {
 }
 
 function NotionLine() {
-  const { notion, status, hasSession, notes, finals } = useSession();
+  const { currentId, exports, status, notes, finals } = useSession();
   const idle = status === 'idle' || status === 'error';
-  const hasData = hasSession || finals.length > 0 || hasContent(notes);
+  const hasData = currentId !== null && (finals.length > 0 || hasContent(notes));
+  const notion = (currentId && exports[currentId]) || { status: 'idle' as const };
   if (!hasData && notion.status === 'idle') return null;
 
   const syncing = notion.status === 'syncing';
@@ -68,7 +70,7 @@ function NotionLine() {
       {notion.status === 'idle' && <span>Not synced</span>}
       {notion.status === 'error' && <span className="text-red-600">Failed</span>}
       <button
-        onClick={exportActions.sync}
+        onClick={() => exportActions.sync()}
         disabled={!idle || syncing || !hasData}
         className="ml-auto rounded border border-neutral-300 px-2 py-0.5 disabled:opacity-50 dark:border-neutral-600"
       >
@@ -85,13 +87,43 @@ const CONNECTION_LABEL = {
   closed: 'Disconnected',
 } as const;
 
+type Tab = 'current' | 'history';
+
+function Tabs({ tab, onChange }: { tab: Tab; onChange: (tab: Tab) => void }) {
+  const item = (id: Tab, label: string) => (
+    <button
+      role="tab"
+      aria-selected={tab === id}
+      onClick={() => onChange(id)}
+      className={`px-3 py-2 text-sm ${
+        tab === id
+          ? 'border-b-2 border-blue-600 font-medium'
+          : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100'
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div role="tablist" className="flex border-b border-neutral-200 dark:border-neutral-700">
+      {item('current', 'Current session')}
+      {item('history', 'History')}
+    </div>
+  );
+}
+
 export function App() {
-  const { status, connection, error, level, finals, interim, notesError, notion } = useSession();
+  const { status, connection, error, level, finals, interim, notesError, currentId, exports } =
+    useSession();
+  const notes = useSession((s) => s.notes);
+  const notesBusy = useSession((s) => s.notesBusy);
+  const [tab, setTab] = useState<Tab>('current');
 
   useEffect(() => connectSession(), []);
 
   const busy = status === 'starting' || status === 'stopping';
   const live = status === 'recording' || status === 'paused';
+  const notionError = currentId ? exports[currentId] : undefined;
 
   return (
     <div className="flex h-screen flex-col bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100">
@@ -140,9 +172,9 @@ export function App() {
         </div>
         <UsageLine />
         <NotionLine />
-        {notion.status === 'error' && notion.error && (
+        {notionError?.status === 'error' && notionError.error && (
           <p className="rounded bg-red-100 p-2 text-xs text-red-900">
-            {notion.error}{' '}
+            {notionError.error}{' '}
             <button className="underline" onClick={() => browser.runtime.openOptionsPage()}>
               Open options
             </button>
@@ -165,20 +197,29 @@ export function App() {
           </p>
         )}
       </header>
-      <main className="flex-1 overflow-auto p-3">
-        <NotesView />
-      </main>
-      <details
-        open
-        className="max-h-1/2 overflow-auto border-t border-neutral-200 p-3 text-sm dark:border-neutral-700"
-      >
-        <summary className="cursor-pointer">Transcript</summary>
-        <p className="mt-2 whitespace-pre-wrap">
-          {finals.join(' ')}
-          {interim && <span className="text-neutral-400"> {interim}</span>}
-          {!finals.length && !interim && <span className="text-neutral-500">Nothing yet.</span>}
-        </p>
-      </details>
+      <Tabs tab={tab} onChange={setTab} />
+      {tab === 'history' ? (
+        <main className="flex-1 overflow-auto p-3">
+          <HistoryView />
+        </main>
+      ) : (
+        <>
+          <main className="flex-1 overflow-auto p-3">
+            <NotesView notes={notes} busy={notesBusy} />
+          </main>
+          <details
+            open
+            className="max-h-1/2 overflow-auto border-t border-neutral-200 p-3 text-sm dark:border-neutral-700"
+          >
+            <summary className="cursor-pointer">Transcript</summary>
+            <p className="mt-2 whitespace-pre-wrap">
+              {finals.join(' ')}
+              {interim && <span className="text-neutral-400"> {interim}</span>}
+              {!finals.length && !interim && <span className="text-neutral-500">Nothing yet.</span>}
+            </p>
+          </details>
+        </>
+      )}
     </div>
   );
 }

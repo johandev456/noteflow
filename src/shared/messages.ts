@@ -27,9 +27,12 @@ export interface SessionSnapshot {
   connection: ConnectionState;
   error?: string;
   notes: NotesSnapshot;
-  export: ExportState;
-  /** A finished session exists that can be exported. */
-  hasSession: boolean;
+  /** The session shown in the "current" tab: the active recording, or the latest finished one. */
+  sessionId: string | null;
+  startedAt: number | null;
+  transcript: string[];
+  /** Notion sync state per session id. */
+  exports: Record<string, ExportState>;
 }
 
 /** Sidepanel / keyboard command -> background. */
@@ -41,14 +44,18 @@ export type PanelCommand =
   | { type: 'session/getState' }
   | { type: 'notes/edit'; id: string; text: string }
   | { type: 'notes/delete'; id: string }
-  | { type: 'export/sync' };
+  /** Defaults to the current session. */
+  | { type: 'export/sync'; sessionId?: string }
+  | { type: 'session/delete'; sessionId: string };
 
 /** Background -> offscreen document. */
 export type OffscreenCommand =
   | { type: 'offscreen/start'; streamId: string; apiKey: string; language: string }
   | { type: 'offscreen/stop' }
   | { type: 'offscreen/pause' }
-  | { type: 'offscreen/resume' };
+  | { type: 'offscreen/resume' }
+  /** Answered with `{ status: 'recording' | 'paused' | 'idle' }`. */
+  | { type: 'offscreen/getStatus' };
 
 /** Events broadcast to every extension page (offscreen and background emit them). */
 export type SessionEvent =
@@ -57,7 +64,16 @@ export type SessionEvent =
   | { type: 'stt/connection'; state: ConnectionState }
   | { type: 'audio/level'; level: number }
   | ({ type: 'notes/state' } & NotesSnapshot)
-  | ({ type: 'export/state' } & ExportState);
+  | ({ type: 'export/state'; sessionId: string } & ExportState)
+  /** The stored sessions changed; history views should reload. */
+  | { type: 'history/changed' }
+  /** The "current" session changed (for example it was deleted). */
+  | {
+      type: 'session/current';
+      sessionId: string | null;
+      startedAt: number | null;
+      transcript: string[];
+    };
 
 export type Message = PanelCommand | OffscreenCommand | SessionEvent;
 

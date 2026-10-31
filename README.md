@@ -44,3 +44,7 @@ Keys are stored in `chrome.storage.local` only. `.env.example` is for developmen
 4. On Stop the notes are exported automatically (toggle in options). The side panel also has **Sync now** / **Sync again**; syncing again updates the same page instead of creating a duplicate.
 
 For a database, optional properties are filled when they exist with a matching type: `Date`, `URL`, `Duration` (number or text) and `Tags` (multi-select). The page body is: TL;DR, sections, decisions, action items (to-dos), open questions and a toggle with the full transcript.
+
+## History and recovery (Phase 4)
+
+Every recording is saved in IndexedDB (Dexie) while it runs. The **History** tab lists past sessions; open one to see its notes and transcript, send it to Notion again (it updates the same page), export it as Markdown, or delete it. Closing the side panel mid-recording no longer loses anything: reopening it restores the timer, transcript and notes. If the browser closed during a recording, the saved part is kept as a finished session.

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { hasContent } from '../../core/notes/types';
-import { notesActions, useSession } from './store';
+import { hasContent, type NotesState } from '../../core/notes/types';
+import { notesActions } from './store';
 
 function EditableText({ id, text, edited }: { id: string; text: string; edited?: boolean }) {
   const [editing, setEditing] = useState(false);
@@ -31,7 +31,7 @@ function EditableText({ id, text, edited }: { id: string; text: string; edited?:
     );
   }
   return (
-    <span className="flex-1 cursor-text" onClick={() => (setDraft(text), setEditing(true))}>
+    <span className="cursor-text" onClick={() => (setDraft(text), setEditing(true))}>
       {text}
       {edited && <span className="ml-1 text-xs text-neutral-400">(edited)</span>}
     </span>
@@ -41,29 +41,39 @@ function EditableText({ id, text, edited }: { id: string; text: string; edited?:
 function Row({
   id,
   text,
+  suffix,
   edited,
   marker,
   muted,
+  readOnly,
 }: {
   id: string;
   text: string;
+  /** Shown after the text and not editable (for example an action item's owner). */
+  suffix?: string;
   edited?: boolean;
   marker: string;
   muted?: boolean;
+  readOnly: boolean;
 }) {
   return (
     <li
       className={`note-in group flex gap-2 py-0.5 ${muted ? 'text-neutral-400 line-through' : ''}`}
     >
       <span className="select-none text-neutral-400">{marker}</span>
-      <EditableText key={text} id={id} text={text} edited={edited} />
-      <button
-        aria-label="Delete"
-        onClick={() => notesActions.remove(id)}
-        className="invisible text-neutral-400 hover:text-red-600 group-hover:visible"
-      >
-        ×
-      </button>
+      <span className="flex-1">
+        {readOnly ? text : <EditableText key={text} id={id} text={text} edited={edited} />}
+        {suffix && <span className="text-neutral-500"> {suffix}</span>}
+      </span>
+      {!readOnly && (
+        <button
+          aria-label="Delete"
+          onClick={() => notesActions.remove(id)}
+          className="invisible text-neutral-400 hover:text-red-600 group-hover:visible"
+        >
+          ×
+        </button>
+      )}
     </li>
   );
 }
@@ -77,16 +87,23 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-export function NotesView() {
-  const notes = useSession((s) => s.notes);
-  const busy = useSession((s) => s.notesBusy);
-
+export function NotesView({
+  notes,
+  busy = false,
+  readOnly = false,
+}: {
+  notes: NotesState;
+  busy?: boolean;
+  readOnly?: boolean;
+}) {
   if (!hasContent(notes) && !notes.title) {
     return (
       <p className="text-sm text-neutral-500">
         {busy
           ? 'Structuring the first notes…'
-          : 'Live notes will appear here as the conversation goes.'}
+          : readOnly
+            ? 'This session has no notes.'
+            : 'Live notes will appear here as the conversation goes.'}
       </p>
     );
   }
@@ -109,7 +126,14 @@ export function NotesView() {
         <Block key={section.id} title={section.heading}>
           <ul>
             {section.bullets.map((b) => (
-              <Row key={b.id} id={b.id} text={b.text} edited={b.userEdited} marker="•" />
+              <Row
+                key={b.id}
+                id={b.id}
+                text={b.text}
+                edited={b.userEdited}
+                marker="•"
+                readOnly={readOnly}
+              />
             ))}
           </ul>
         </Block>
@@ -118,7 +142,14 @@ export function NotesView() {
         <Block title="Decisions">
           <ul>
             {notes.decisions.map((d) => (
-              <Row key={d.id} id={d.id} text={d.text} edited={d.userEdited} marker="✓" />
+              <Row
+                key={d.id}
+                id={d.id}
+                text={d.text}
+                edited={d.userEdited}
+                marker="✓"
+                readOnly={readOnly}
+              />
             ))}
           </ul>
         </Block>
@@ -130,11 +161,13 @@ export function NotesView() {
               <Row
                 key={a.id}
                 id={a.id}
-                text={[a.text, a.owner && `— ${a.owner}`, a.due && `(${a.due})`]
+                text={a.text}
+                suffix={[a.owner && `— ${a.owner}`, a.due && `(${a.due})`]
                   .filter(Boolean)
                   .join(' ')}
                 edited={a.userEdited}
                 marker="☐"
+                readOnly={readOnly}
               />
             ))}
           </ul>
@@ -151,6 +184,7 @@ export function NotesView() {
                 edited={q.userEdited}
                 marker="?"
                 muted={q.resolved}
+                readOnly={readOnly}
               />
             ))}
           </ul>

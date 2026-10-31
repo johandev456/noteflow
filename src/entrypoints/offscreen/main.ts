@@ -88,8 +88,11 @@ function setPaused(paused: boolean): void {
   send({ type: 'session/status', status: paused ? 'paused' : 'recording' });
 }
 
-browser.runtime.onMessage.addListener((message: Message) => {
+browser.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   switch (message.type) {
+    case 'offscreen/getStatus':
+      sendResponse({ status: session ? (session.paused ? 'paused' : 'recording') : 'idle' });
+      break;
     case 'offscreen/start':
       start(message.streamId, message.apiKey, message.language).catch((err: unknown) => {
         void teardown();

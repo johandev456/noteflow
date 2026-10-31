@@ -17,16 +17,19 @@ interface SessionState {
   connection: ConnectionState;
   error?: string;
   level: number;
+  /** Final transcript segments of the current session. */
   finals: string[];
   interim: string;
   startedAt: number | null;
+  /** The active recording, or the latest finished session. */
+  currentId: string | null;
   notes: NotesState;
   usage: Usage;
   notesBusy: boolean;
   notesError?: string;
   prices: Prices;
-  hasSession: boolean;
-  notion: ExportState;
+  /** Notion sync state per session id. */
+  exports: Record<string, ExportState>;
 }
 
 export const useSession = create<SessionState>(() => ({
@@ -36,12 +39,12 @@ export const useSession = create<SessionState>(() => ({
   finals: [],
   interim: '',
   startedAt: null,
+  currentId: null,
   notes: emptyNotes(),
   usage: emptyUsage(),
   notesBusy: false,
   prices: { inputPerM: 0, outputPerM: 0 },
-  hasSession: false,
-  notion: { status: 'idle' },
+  exports: {},
 }));
 
 function applyStatus(status: SessionStatus, error?: string): void {
@@ -56,7 +59,6 @@ function applyStatus(status: SessionStatus, error?: string): void {
       // A new session clears the previous transcript.
       finals: starting ? [] : s.finals,
       startedAt: starting ? Date.now() : active ? s.startedAt : null,
-      hasSession: s.hasSession || active,
     };
   });
 }
@@ -92,8 +94,19 @@ function handleMessage(message: Message): void {
       applyNotes(message);
       break;
     case 'export/state':
+      useSession.setState((s) => ({
+        exports: {
+          ...s.exports,
+          [message.sessionId]: { status: message.status, url: message.url, error: message.error },
+        },
+      }));
+      break;
+    case 'session/current':
       useSession.setState({
-        notion: { status: message.status, url: message.url, error: message.error },
+        currentId: message.sessionId,
+        finals: message.transcript,
+        startedAt: message.startedAt,
+        interim: '',
       });
       break;
   }
@@ -109,13 +122,14 @@ export function connectSession(): () => void {
       if (!snapshot) return;
       useSession.setState({
         connection: snapshot.connection,
-        hasSession: snapshot.hasSession,
-        notion: snapshot.export,
+        currentId: snapshot.sessionId,
+        finals: snapshot.transcript,
+        startedAt: snapshot.startedAt,
+        exports: snapshot.exports,
       });
-      if (snapshot.status !== 'idle') {
-        useSession.setState({ startedAt: Date.now() }); // exact start time is not persisted yet (Phase 4)
-      }
       applyStatus(snapshot.status, snapshot.error);
+      // applyStatus resets startedAt for idle states; restore the real one for live sessions.
+      if (snapshot.startedAt) useSession.setState({ startedAt: snapshot.startedAt });
       applyNotes(snapshot.notes);
     })
     .catch(() => {});
@@ -142,5 +156,6 @@ export const notesActions = {
 };
 
 export const exportActions = {
-  sync: () => send({ type: 'export/sync' }),
+  sync: (sessionId?: string) => send({ type: 'export/sync', sessionId }),
+  remove: (sessionId: string) => send({ type: 'session/delete', sessionId }),
 };
