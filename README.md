@@ -35,3 +35,12 @@ Keys are stored in `chrome.storage.local` only. `.env.example` is for developmen
 2. Optionally enter the model prices (USD per 1M tokens) to see an estimated cost in the side panel.
 3. Start a recording. Notes update after ~120 new words or ~45 s. Click a note to edit it (edited notes are never overwritten by the model) or press × to delete it.
 4. On Stop, a final pass sets the title, a 3-5 line TL;DR and the section order.
+
+## Notion export (Phase 3)
+
+1. Create an internal integration at notion.so/my-integrations and copy its token.
+2. In Notion, open the target database (or parent page), use **⋯ → Connections** and add the integration.
+3. In the options, paste the token and the destination URL, choose the type, and press **Test Notion**.
+4. On Stop the notes are exported automatically (toggle in options). The side panel also has **Sync now** / **Sync again**; syncing again updates the same page instead of creating a duplicate.
+
+For a database, optional properties are filled when they exist with a matching type: `Date`, `URL`, `Duration` (number or text) and `Tags` (multi-select). The page body is: TL;DR, sections, decisions, action items (to-dos), open questions and a toggle with the full transcript.

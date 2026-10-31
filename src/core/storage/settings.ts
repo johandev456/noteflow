@@ -15,6 +15,14 @@ export const settingsSchema = z.object({
   notesLanguage: z.enum(['auto', 'es', 'en']).default('auto'),
   triggerWords: z.number().int().min(10).default(120),
   triggerSeconds: z.number().int().min(5).default(45),
+
+  notionToken: z.string().default(''),
+  notionDestinationType: z.enum(['page', 'database']).default('database'),
+  /** A Notion URL or id; parsed when exporting. */
+  notionDestination: z.string().default(''),
+  notionAutoExport: z.boolean().default(true),
+  /** Comma-separated; applied only if the database has a multi-select "Tags" property. */
+  notionTags: z.string().default(''),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -28,4 +36,8 @@ export async function loadSettings(): Promise<Settings> {
 
 export async function saveSettings(settings: Settings): Promise<void> {
   await browser.storage.local.set({ [KEY]: settingsSchema.parse(settings) });
+}
+
+export function isNotionConfigured(s: Settings): boolean {
+  return Boolean(s.notionToken && s.notionDestination);
 }

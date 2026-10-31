@@ -5,6 +5,7 @@ import { loadSettings } from '../../core/storage/settings';
 import {
   send,
   type ConnectionState,
+  type ExportState,
   type Message,
   type NotesSnapshot,
   type SessionSnapshot,
@@ -24,6 +25,8 @@ interface SessionState {
   notesBusy: boolean;
   notesError?: string;
   prices: Prices;
+  hasSession: boolean;
+  notion: ExportState;
 }
 
 export const useSession = create<SessionState>(() => ({
@@ -37,6 +40,8 @@ export const useSession = create<SessionState>(() => ({
   usage: emptyUsage(),
   notesBusy: false,
   prices: { inputPerM: 0, outputPerM: 0 },
+  hasSession: false,
+  notion: { status: 'idle' },
 }));
 
 function applyStatus(status: SessionStatus, error?: string): void {
@@ -51,6 +56,7 @@ function applyStatus(status: SessionStatus, error?: string): void {
       // A new session clears the previous transcript.
       finals: starting ? [] : s.finals,
       startedAt: starting ? Date.now() : active ? s.startedAt : null,
+      hasSession: s.hasSession || active,
     };
   });
 }
@@ -85,6 +91,11 @@ function handleMessage(message: Message): void {
     case 'notes/state':
       applyNotes(message);
       break;
+    case 'export/state':
+      useSession.setState({
+        notion: { status: message.status, url: message.url, error: message.error },
+      });
+      break;
   }
 }
 
@@ -96,7 +107,11 @@ export function connectSession(): () => void {
     .sendMessage({ type: 'session/getState' })
     .then((snapshot: SessionSnapshot | undefined) => {
       if (!snapshot) return;
-      useSession.setState({ connection: snapshot.connection });
+      useSession.setState({
+        connection: snapshot.connection,
+        hasSession: snapshot.hasSession,
+        notion: snapshot.export,
+      });
       if (snapshot.status !== 'idle') {
         useSession.setState({ startedAt: Date.now() }); // exact start time is not persisted yet (Phase 4)
       }
@@ -124,4 +139,8 @@ export const sessionActions = {
 export const notesActions = {
   edit: (id: string, text: string) => send({ type: 'notes/edit', id, text }),
   remove: (id: string) => send({ type: 'notes/delete', id }),
+};
+
+export const exportActions = {
+  sync: () => send({ type: 'export/sync' }),
 };

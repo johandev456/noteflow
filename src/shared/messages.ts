@@ -15,11 +15,21 @@ export interface NotesSnapshot {
   error?: string;
 }
 
+export interface ExportState {
+  status: 'idle' | 'syncing' | 'done' | 'error';
+  /** Link to the Notion page once exported. */
+  url?: string;
+  error?: string;
+}
+
 export interface SessionSnapshot {
   status: SessionStatus;
   connection: ConnectionState;
   error?: string;
   notes: NotesSnapshot;
+  export: ExportState;
+  /** A finished session exists that can be exported. */
+  hasSession: boolean;
 }
 
 /** Sidepanel / keyboard command -> background. */
@@ -30,7 +40,8 @@ export type PanelCommand =
   | { type: 'session/resume' }
   | { type: 'session/getState' }
   | { type: 'notes/edit'; id: string; text: string }
-  | { type: 'notes/delete'; id: string };
+  | { type: 'notes/delete'; id: string }
+  | { type: 'export/sync' };
 
 /** Background -> offscreen document. */
 export type OffscreenCommand =
@@ -45,7 +56,8 @@ export type SessionEvent =
   | { type: 'stt/transcript'; text: string; isFinal: boolean }
   | { type: 'stt/connection'; state: ConnectionState }
   | { type: 'audio/level'; level: number }
-  | ({ type: 'notes/state' } & NotesSnapshot);
+  | ({ type: 'notes/state' } & NotesSnapshot)
+  | ({ type: 'export/state' } & ExportState);
 
 export type Message = PanelCommand | OffscreenCommand | SessionEvent;
 

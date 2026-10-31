@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { estimateCost, formatTokens } from '../../core/llm/usage';
 import { NotesView } from './NotesView';
-import { connectSession, sessionActions, useSession } from './store';
+import { hasContent } from '../../core/notes/types';
+import { connectSession, exportActions, sessionActions, useSession } from './store';
 
 function formatElapsed(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -45,6 +46,38 @@ function UsageLine() {
   );
 }
 
+function NotionLine() {
+  const { notion, status, hasSession, notes, finals } = useSession();
+  const idle = status === 'idle' || status === 'error';
+  const hasData = hasSession || finals.length > 0 || hasContent(notes);
+  if (!hasData && notion.status === 'idle') return null;
+
+  const syncing = notion.status === 'syncing';
+  return (
+    <div className="flex items-center gap-2 text-xs text-neutral-500">
+      <span>Notion:</span>
+      {syncing && <span className="animate-pulse">Syncing…</span>}
+      {notion.status === 'done' &&
+        (notion.url ? (
+          <a href={notion.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+            Synced ↗
+          </a>
+        ) : (
+          <span>Synced</span>
+        ))}
+      {notion.status === 'idle' && <span>Not synced</span>}
+      {notion.status === 'error' && <span className="text-red-600">Failed</span>}
+      <button
+        onClick={exportActions.sync}
+        disabled={!idle || syncing || !hasData}
+        className="ml-auto rounded border border-neutral-300 px-2 py-0.5 disabled:opacity-50 dark:border-neutral-600"
+      >
+        {notion.status === 'done' ? 'Sync again' : 'Sync now'}
+      </button>
+    </div>
+  );
+}
+
 const CONNECTION_LABEL = {
   connecting: 'Connecting…',
   open: 'Connected',
@@ -53,7 +86,7 @@ const CONNECTION_LABEL = {
 } as const;
 
 export function App() {
-  const { status, connection, error, level, finals, interim, notesError } = useSession();
+  const { status, connection, error, level, finals, interim, notesError, notion } = useSession();
 
   useEffect(() => connectSession(), []);
 
@@ -106,6 +139,15 @@ export function App() {
           </div>
         </div>
         <UsageLine />
+        <NotionLine />
+        {notion.status === 'error' && notion.error && (
+          <p className="rounded bg-red-100 p-2 text-xs text-red-900">
+            {notion.error}{' '}
+            <button className="underline" onClick={() => browser.runtime.openOptionsPage()}>
+              Open options
+            </button>
+          </p>
+        )}
         {notesError && (
           <p className="rounded bg-amber-100 p-2 text-xs text-amber-900">
             Notes: {notesError}{' '}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { OpenAiCompatClient } from '../../core/llm/client';
 import { LLM_PRESETS, type LlmPresetId } from '../../core/llm/presets';
+import { describeNotionError, NotionClient } from '../../core/notion/client';
+import { buildProperties, parseNotionId, resolveDestination } from '../../core/notion/exporter';
 import {
   loadSettings,
   saveSettings,
@@ -50,7 +52,7 @@ export function Options() {
 
   function flash(text: string) {
     setMessage(text);
-    setTimeout(() => setMessage(''), 3000);
+    setTimeout(() => setMessage(''), 8000);
   }
 
   function onPreset(id: LlmPresetId) {
@@ -69,6 +71,8 @@ export function Options() {
       llmApiKey: s.llmApiKey.trim(),
       llmBaseUrl: s.llmBaseUrl.trim(),
       llmModel: s.llmModel.trim(),
+      notionToken: s.notionToken.trim(),
+      notionDestination: s.notionDestination.trim(),
     };
     if (cleaned.llmBaseUrl && !(await ensureHostPermission(cleaned.llmBaseUrl))) {
       flash('Permission for the LLM endpoint was not granted, or the URL is invalid.');
@@ -102,6 +106,33 @@ export function Options() {
           ? 'The LLM rejected the API key.'
           : `LLM test failed${status ? ` (${status})` : ''}: check URL, model and balance.`,
       );
+    }
+  }
+
+  async function onTestNotion() {
+    const id = parseNotionId(s.notionDestination);
+    if (!s.notionToken.trim()) return flash('Enter the Notion token first.');
+    if (!id) return flash('The destination must be a Notion URL or id.');
+    flash('Testing Notion…');
+    try {
+      const api = new NotionClient({ token: s.notionToken.trim() });
+      const me = await api.getMe();
+      const dest = await resolveDestination(api, { type: s.notionDestinationType, id });
+      let found = ' Page found.';
+      if (dest.kind === 'data_source') {
+        const { properties } = buildProperties(dest, {
+          title: '',
+          startedAt: 0,
+          durationMs: 0,
+          url: 'x',
+          tags: ['x'],
+        });
+        const filled = Object.keys(properties).filter((k) => k !== dest.titleProperty);
+        found = ` Database "${dest.name}" found; properties filled: ${filled.join(', ') || 'title only'}.`;
+      }
+      flash(`Connected${me.name ? ` as ${me.name}` : ''}.${found}`);
+    } catch (err) {
+      flash(describeNotionError(err));
     }
   }
 
@@ -221,7 +252,57 @@ export function Options() {
         </Field>
       </div>
 
-      <div className="flex items-center gap-3 pt-2">
+      <h2 className="pt-2 font-semibold">Notion</h2>
+      <Field label="Integration token">
+        <input
+          type="password"
+          value={s.notionToken}
+          onChange={(e) => update('notionToken', e.target.value)}
+          className={inputClass}
+        />
+      </Field>
+      <Field label="Destination type">
+        <select
+          value={s.notionDestinationType}
+          onChange={(e) =>
+            update('notionDestinationType', e.target.value as Settings['notionDestinationType'])
+          }
+          className={inputClass}
+        >
+          <option value="database">Database (one page per recording)</option>
+          <option value="page">Parent page (sub-pages under it)</option>
+        </select>
+      </Field>
+      <Field label="Destination URL or id">
+        <input
+          value={s.notionDestination}
+          onChange={(e) => update('notionDestination', e.target.value)}
+          placeholder="https://www.notion.so/..."
+          className={inputClass}
+        />
+      </Field>
+      <p className="text-xs text-neutral-500">
+        Share the page or database with your integration first (⋯ → Connections). A database can
+        have optional Date, URL, Duration (number or text) and Tags (multi-select) properties; they
+        are filled when present.
+      </p>
+      <Field label="Tags (comma separated, optional)">
+        <input
+          value={s.notionTags}
+          onChange={(e) => update('notionTags', e.target.value)}
+          className={inputClass}
+        />
+      </Field>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={s.notionAutoExport}
+          onChange={(e) => update('notionAutoExport', e.target.checked)}
+        />
+        Export to Notion automatically when I stop recording
+      </label>
+
+      <div className="flex flex-wrap items-center gap-3 pt-2">
         <button onClick={onSave} className="rounded bg-blue-600 px-4 py-2 text-sm text-white">
           Save
         </button>
@@ -230,6 +311,12 @@ export function Options() {
           className="rounded border border-neutral-300 px-4 py-2 text-sm dark:border-neutral-600"
         >
           Test LLM
+        </button>
+        <button
+          onClick={onTestNotion}
+          className="rounded border border-neutral-300 px-4 py-2 text-sm dark:border-neutral-600"
+        >
+          Test Notion
         </button>
         <span className="text-sm text-neutral-500" role="status">
           {message}
