@@ -7,12 +7,12 @@ describe('settingsSchema', () => {
       deepgramApiKey: '',
       sttLanguage: 'multi',
       llmModel: 'qwen3.8-flash',
-      llmBaseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      llmBaseUrl: 'https://ap-southeast-1.maas.qwencloudapi.com/compatible-mode/v1',
       notesLanguage: 'auto',
       triggerWords: 120,
       triggerSeconds: 45,
-      priceInputPerM: 0,
-      priceOutputPerM: 0,
+      priceInputPerM: 0.15,
+      priceOutputPerM: 0.47,
     });
   });
 });

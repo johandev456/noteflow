@@ -9,8 +9,8 @@ export const settingsSchema = z.object({
   llmModel: z.string().default(LLM_PRESETS.qwen.model),
   llmApiKey: z.string().default(''),
   /** Price per million tokens; 0 means unknown, so the UI shows tokens only. */
-  priceInputPerM: z.number().min(0).default(0),
-  priceOutputPerM: z.number().min(0).default(0),
+  priceInputPerM: z.number().min(0).default(0.15),
+  priceOutputPerM: z.number().min(0).default(0.47),
 
   notesLanguage: z.enum(['auto', 'es', 'en']).default('auto'),
   triggerWords: z.number().int().min(10).default(120),

@@ -8,7 +8,7 @@ export interface LlmPreset {
 export const LLM_PRESETS = {
   qwen: {
     label: 'Qwen (Alibaba Model Studio, international)',
-    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    baseUrl: 'https://ap-southeast-1.maas.qwencloudapi.com/compatible-mode/v1',
     model: 'qwen3.8-flash',
   },
   custom: { label: 'Custom (OpenAI-compatible)', baseUrl: '', model: '' },
