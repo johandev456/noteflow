@@ -28,3 +28,10 @@ Keys are stored in `chrome.storage.local` only. `.env.example` is for developmen
 2. Open a tab with audio (for example a YouTube video) and click the NoteFlow icon to open the side panel.
 3. Press **Start** (or `Alt+Shift+N`). The transcript appears live and the tab keeps playing.
 4. The capture applies to the tab that was active when you pressed Start.
+
+## Live notes (Phase 2)
+
+1. In the options, set the LLM base URL, model and API key (default preset: Qwen `qwen3.8-flash` on the international endpoint) and press **Test LLM**.
+2. Optionally enter the model prices (USD per 1M tokens) to see an estimated cost in the side panel.
+3. Start a recording. Notes update after ~120 new words or ~45 s. Click a note to edit it (edited notes are never overwritten by the model) or press × to delete it.
+4. On Stop, a final pass sets the title, a 3-5 line TL;DR and the section order.

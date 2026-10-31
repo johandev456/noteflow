@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { estimateCost, formatTokens } from '../../core/llm/usage';
+import { NotesView } from './NotesView';
 import { connectSession, sessionActions, useSession } from './store';
 
 function formatElapsed(ms: number): string {
@@ -26,6 +28,23 @@ function Timer() {
   );
 }
 
+function UsageLine() {
+  const usage = useSession((s) => s.usage);
+  const prices = useSession((s) => s.prices);
+  const busy = useSession((s) => s.notesBusy);
+  const cost = estimateCost(usage, prices);
+  if (usage.calls === 0 && !busy) return null;
+  return (
+    <div className="flex items-center gap-2 text-xs text-neutral-500">
+      <span>
+        {formatTokens(usage.inputTokens)} in · {formatTokens(usage.outputTokens)} out
+        {cost !== null && ` · ~$${cost.toFixed(cost < 0.01 ? 4 : 3)}`}
+      </span>
+      {busy && <span className="animate-pulse">Updating notes…</span>}
+    </div>
+  );
+}
+
 const CONNECTION_LABEL = {
   connecting: 'Connecting…',
   open: 'Connected',
@@ -34,7 +53,7 @@ const CONNECTION_LABEL = {
 } as const;
 
 export function App() {
-  const { status, connection, error, level, finals, interim } = useSession();
+  const { status, connection, error, level, finals, interim, notesError } = useSession();
 
   useEffect(() => connectSession(), []);
 
@@ -86,6 +105,15 @@ export function App() {
             />
           </div>
         </div>
+        <UsageLine />
+        {notesError && (
+          <p className="rounded bg-amber-100 p-2 text-xs text-amber-900">
+            Notes: {notesError}{' '}
+            <button className="underline" onClick={() => browser.runtime.openOptionsPage()}>
+              Open options
+            </button>
+          </p>
+        )}
         {error && (
           <p className="rounded bg-red-100 p-2 text-xs text-red-900">
             {error}{' '}
@@ -95,8 +123,8 @@ export function App() {
           </p>
         )}
       </header>
-      <main className="flex-1 overflow-auto p-3 text-sm text-neutral-500">
-        Live notes will appear here.
+      <main className="flex-1 overflow-auto p-3">
+        <NotesView />
       </main>
       <details
         open

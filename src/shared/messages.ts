@@ -1,14 +1,25 @@
 /** Messages exchanged between sidepanel, background and offscreen document. */
+import type { Usage } from '../core/llm/usage';
+import type { NotesState } from '../core/notes/types';
 import type { ConnectionState } from '../core/stt/types';
 
 export type { ConnectionState };
 
 export type SessionStatus = 'idle' | 'starting' | 'recording' | 'paused' | 'stopping' | 'error';
 
+export interface NotesSnapshot {
+  notes: NotesState;
+  usage: Usage;
+  /** An LLM call (or the final pass) is running. */
+  busy: boolean;
+  error?: string;
+}
+
 export interface SessionSnapshot {
   status: SessionStatus;
   connection: ConnectionState;
   error?: string;
+  notes: NotesSnapshot;
 }
 
 /** Sidepanel / keyboard command -> background. */
@@ -17,7 +28,9 @@ export type PanelCommand =
   | { type: 'session/stop' }
   | { type: 'session/pause' }
   | { type: 'session/resume' }
-  | { type: 'session/getState' };
+  | { type: 'session/getState' }
+  | { type: 'notes/edit'; id: string; text: string }
+  | { type: 'notes/delete'; id: string };
 
 /** Background -> offscreen document. */
 export type OffscreenCommand =
@@ -31,7 +44,8 @@ export type SessionEvent =
   | { type: 'session/status'; status: SessionStatus; error?: string }
   | { type: 'stt/transcript'; text: string; isFinal: boolean }
   | { type: 'stt/connection'; state: ConnectionState }
-  | { type: 'audio/level'; level: number };
+  | { type: 'audio/level'; level: number }
+  | ({ type: 'notes/state' } & NotesSnapshot);
 
 export type Message = PanelCommand | OffscreenCommand | SessionEvent;
 

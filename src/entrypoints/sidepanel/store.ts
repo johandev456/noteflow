@@ -1,8 +1,12 @@
 import { create } from 'zustand';
+import { emptyUsage, type Prices, type Usage } from '../../core/llm/usage';
+import { emptyNotes, type NotesState } from '../../core/notes/types';
+import { loadSettings } from '../../core/storage/settings';
 import {
   send,
   type ConnectionState,
   type Message,
+  type NotesSnapshot,
   type SessionSnapshot,
   type SessionStatus,
 } from '../../shared/messages';
@@ -15,6 +19,11 @@ interface SessionState {
   finals: string[];
   interim: string;
   startedAt: number | null;
+  notes: NotesState;
+  usage: Usage;
+  notesBusy: boolean;
+  notesError?: string;
+  prices: Prices;
 }
 
 export const useSession = create<SessionState>(() => ({
@@ -24,6 +33,10 @@ export const useSession = create<SessionState>(() => ({
   finals: [],
   interim: '',
   startedAt: null,
+  notes: emptyNotes(),
+  usage: emptyUsage(),
+  notesBusy: false,
+  prices: { inputPerM: 0, outputPerM: 0 },
 }));
 
 function applyStatus(status: SessionStatus, error?: string): void {
@@ -39,6 +52,15 @@ function applyStatus(status: SessionStatus, error?: string): void {
       finals: starting ? [] : s.finals,
       startedAt: starting ? Date.now() : active ? s.startedAt : null,
     };
+  });
+}
+
+function applyNotes(snap: NotesSnapshot): void {
+  useSession.setState({
+    notes: snap.notes,
+    usage: snap.usage,
+    notesBusy: snap.busy,
+    notesError: snap.error,
   });
 }
 
@@ -60,6 +82,9 @@ function handleMessage(message: Message): void {
           : { interim: message.text },
       );
       break;
+    case 'notes/state':
+      applyNotes(message);
+      break;
   }
 }
 
@@ -76,7 +101,15 @@ export function connectSession(): () => void {
         useSession.setState({ startedAt: Date.now() }); // exact start time is not persisted yet (Phase 4)
       }
       applyStatus(snapshot.status, snapshot.error);
+      applyNotes(snapshot.notes);
     })
+    .catch(() => {});
+  loadSettings()
+    .then((s) =>
+      useSession.setState({
+        prices: { inputPerM: s.priceInputPerM, outputPerM: s.priceOutputPerM },
+      }),
+    )
     .catch(() => {});
   return () => browser.runtime.onMessage.removeListener(listener);
 }
@@ -86,4 +119,9 @@ export const sessionActions = {
   stop: () => send({ type: 'session/stop' }),
   pause: () => send({ type: 'session/pause' }),
   resume: () => send({ type: 'session/resume' }),
+};
+
+export const notesActions = {
+  edit: (id: string, text: string) => send({ type: 'notes/edit', id, text }),
+  remove: (id: string) => send({ type: 'notes/delete', id }),
 };

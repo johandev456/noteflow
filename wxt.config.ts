@@ -9,7 +9,13 @@ export default defineConfig({
     name: 'NoteFlow',
     description: 'Live tab-audio transcription with AI-structured notes and Notion export.',
     permissions: ['tabCapture', 'offscreen', 'sidePanel', 'storage', 'activeTab'],
-    host_permissions: ['https://api.deepgram.com/*', 'wss://api.deepgram.com/*'],
+    host_permissions: [
+      'https://api.deepgram.com/*',
+      'wss://api.deepgram.com/*',
+      'https://dashscope-intl.aliyuncs.com/*',
+    ],
+    // Custom LLM endpoints: the options page asks for the specific origin when saving.
+    optional_host_permissions: ['https://*/*'],
     action: { default_title: 'Open NoteFlow' },
     commands: {
       'toggle-recording': {
