@@ -8,7 +8,8 @@ import {
   type Settings,
 } from '../../core/storage/settings';
 
-const inputClass = 'mt-1 w-full rounded border border-neutral-300 bg-transparent p-2';
+const inputClass =
+  'mt-1 w-full rounded border border-neutral-300 bg-white p-2 text-neutral-900 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100';
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
