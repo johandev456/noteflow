@@ -10,7 +10,8 @@ export function Options() {
   }, []);
 
   async function onSave() {
-    await saveSettings({ deepgramApiKey });
+    const current = await loadSettings();
+    await saveSettings({ ...current, deepgramApiKey: deepgramApiKey.trim() });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   }

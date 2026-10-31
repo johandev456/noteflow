@@ -3,6 +3,6 @@ import { settingsSchema } from './settings';
 
 describe('settingsSchema', () => {
   it('fills defaults for empty input', () => {
-    expect(settingsSchema.parse({})).toEqual({ deepgramApiKey: '' });
+    expect(settingsSchema.parse({})).toEqual({ deepgramApiKey: '', sttLanguage: 'multi' });
   });
 });

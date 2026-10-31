@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const settingsSchema = z.object({
   deepgramApiKey: z.string().default(''),
+  sttLanguage: z.string().default('multi'),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;

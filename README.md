@@ -21,3 +21,10 @@ pnpm lint
 4. Click the NoteFlow icon to open the side panel. Open the extension's **Details → Extension options** to set API keys.
 
 Keys are stored in `chrome.storage.local` only. `.env.example` is for development notes and is never read at runtime.
+
+## Try live transcription (Phase 1)
+
+1. In the extension options, paste a Deepgram API key and save.
+2. Open a tab with audio (for example a YouTube video) and click the NoteFlow icon to open the side panel.
+3. Press **Start** (or `Alt+Shift+N`). The transcript appears live and the tab keeps playing.
+4. The capture applies to the tab that was active when you pressed Start.
